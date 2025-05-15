@@ -26,7 +26,7 @@ jobs:
       short_sha: ${{ steps.meta.outputs.SHORT_SHA }}
       branch: ${{ steps.meta.outputs.BRANCH }}
       date: ${{ steps.meta.outputs.DATE }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
 
       - name: Install dependencies
         run: cd apps/backend && npm ci
-        
+
       - name: Extract metadata
         id: meta
         run: |
@@ -54,21 +54,21 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: 'apps/backend/package-lock.json'
-        
+
       - name: Install dependencies
         run: cd apps/backend && npm ci
-        
+
       - name: Run linting
         run: cd apps/backend && npm run lint
 
@@ -76,21 +76,21 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: 'apps/backend/package-lock.json'
-        
+
       - name: Install dependencies
         run: cd apps/backend && npm ci
-        
+
       - name: Build project
         run: cd apps/backend && npm run build
 
@@ -98,21 +98,21 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: 'apps/backend/package-lock.json'
-        
+
       - name: Install dependencies
         run: cd apps/backend && npm ci
-        
+
       - name: Run tests
         run: cd apps/backend && npm test || echo "Tests not configured properly, but continuing build"
 
@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     if: github.event_name != 'pull_request'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -144,7 +144,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-backend:latest
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-backend:${{ needs.setup.outputs.short_sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-backend:${{ steps.meta.outputs.SHORT_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
