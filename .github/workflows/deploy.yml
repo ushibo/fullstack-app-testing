@@ -1,36 +1,141 @@
-name: Deploy
+name: deploy
 
 on:
   workflow_run:
-    workflows: ["Backend CI", "Frontend CI"]
+    workflows: ["backend", "frontend"]
     types:
       - completed
-    branches:
-      - main
-      - master
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker image tag'
+        required: false
+        default: 'latest'
+      environment:
+        description: 'Окружение для деплоя'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      service:
+        description: 'Сервис для перезапуска (пусто - все сервисы)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - backend
+          - frontend
 
 jobs:
   deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Deploy to server
-        uses: appleboy/ssh-action@master
+      - name: Set SHA tag
+        id: set_sha
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          else
+            echo "TAG=latest" >> $GITHUB_ENV
+            echo "ENVIRONMENT=production" >> $GITHUB_ENV
+          fi
+
+      - name: Configure production docker-compose
+        run: |
+          echo "Deploying with TAG: ${{ env.TAG }} to ENVIRONMENT: ${{ env.ENVIRONMENT }}"
+          
+          # Создаём директорию, если её нет
+          mkdir -p /tmp/deploy
+
+          # Копируем docker-compose файл
+          cp infra/docker/docker-compose.prod.yaml /tmp/deploy/docker-compose.yml
+
+          # Подставляем переменные окружения
+          sed -i "s/\${TAG:-latest}/${{ env.TAG }}/g" /tmp/deploy/docker-compose.yml
+
+      - name: Test SSH Connection
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          debug: true
           script: |
-            export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-            export GITHUB_REPOSITORY_OWNER="${{ github.repository_owner }}"
+            echo "SSH connection successful"
+            whoami
+            pwd
+            echo "Host system info:"
+            uname -a
+
+      - name: Copy docker-compose to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          debug: true
+          source: "/tmp/deploy/docker-compose.yml"
+          target: "/var/www/cicd-fullstack/"
+          strip_components: 2
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            export GHCR_USERNAME=ushibo
+            export GHCR_TOKEN=${{ secrets.GHCR_TOKEN }}
+            export TAG=${{ env.TAG }}
+            export SERVICE="${{ github.event.inputs.service }}"
             
-            # Клонируем репозиторий
-            git clone https://github.com/${{ github.repository }} /tmp/fullstack-app || (cd /tmp/fullstack-app && git pull)
+            # Логин в Container Registry
+            docker login ghcr.io -u $GHCR_USERNAME -p $GHCR_TOKEN
             
-            # Выполняем скрипт деплоя
-            cd /tmp/fullstack-app
-            bash infra/scripts/deploy.sh 
+            # Переходим в директорию проекта
+            cd /var/www/cicd-fullstack
+            
+            # Сохраняем копию текущего состояния для отката
+            cp docker-compose.yml docker-compose.backup.yml
+            
+            # Загружаем новые образы
+            if [ -z "$SERVICE" ]; then
+              echo "Pulling all services"
+              docker-compose pull
+            else
+              echo "Pulling service: $SERVICE"
+              docker-compose pull $SERVICE
+            fi
+            
+            # Запускаем новые контейнеры без простоя
+            if [ -z "$SERVICE" ]; then
+              echo "Restarting all services"
+              docker-compose up -d --remove-orphans
+            else
+              echo "Restarting service: $SERVICE"
+              docker-compose up -d --no-deps $SERVICE
+            fi
+            
+            # Проверяем работоспособность после деплоя
+            sleep 10
+            
+            # Проверяем health check backend через frontend
+            if ! curl --silent --fail http://localhost/api/health/readiness; then
+              echo "Деплой неудачен, выполняем откат"
+              cp docker-compose.backup.yml docker-compose.yml
+              docker-compose up -d
+              exit 1
+            fi
+            
+            # Очистка неиспользуемых образов (старше 24 часов)
+            docker system prune -af --filter "until=24h"
