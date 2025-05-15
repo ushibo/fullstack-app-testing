@@ -30,28 +30,34 @@ on:
           - frontend
 
 jobs:
-  deploy:
+  prepare:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-
+    outputs:
+      tag: ${{ steps.set_env.outputs.tag }}
+      environment: ${{ steps.set_env.outputs.environment }}
+      service: ${{ steps.set_env.outputs.service }}
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set SHA tag
-        id: set_sha
+      - name: Set environment variables
+        id: set_env
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
-            echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "service=${{ github.event.inputs.service }}" >> $GITHUB_OUTPUT
           else
-            echo "TAG=latest" >> $GITHUB_ENV
-            echo "ENVIRONMENT=production" >> $GITHUB_ENV
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "service=" >> $GITHUB_OUTPUT
           fi
-
+          
       - name: Configure production docker-compose
         run: |
-          echo "Deploying with TAG: ${{ env.TAG }} to ENVIRONMENT: ${{ env.ENVIRONMENT }}"
+          echo "Preparing deployment with TAG: ${{ steps.set_env.outputs.tag }} to ENVIRONMENT: ${{ steps.set_env.outputs.environment }}"
           
           # Создаём директорию, если её нет
           mkdir -p /tmp/deploy
@@ -60,8 +66,13 @@ jobs:
           cp infra/docker/docker-compose.prod.yaml /tmp/deploy/docker-compose.yml
 
           # Подставляем переменные окружения
-          sed -i "s/\${TAG:-latest}/${{ env.TAG }}/g" /tmp/deploy/docker-compose.yml
-
+          sed -i "s/\${TAG:-latest}/${{ steps.set_env.outputs.tag }}/g" /tmp/deploy/docker-compose.yml
+  
+  test-connection:
+    needs: prepare
+    runs-on: ubuntu-latest
+    
+    steps:
       - name: Test SSH Connection
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -75,7 +86,7 @@ jobs:
             pwd
             echo "Host system info:"
             uname -a
-
+            
       - name: Copy docker-compose to server
         uses: appleboy/scp-action@master
         with:
@@ -86,7 +97,21 @@ jobs:
           source: "/tmp/deploy/docker-compose.yml"
           target: "/var/www/cicd-fullstack/"
           strip_components: 2
-
+  
+  deploy:
+    needs: [prepare, test-connection]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+          ecr: auto
+          logout: true
+          
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -94,13 +119,10 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            export GHCR_USERNAME=ushibo
+            export GHCR_USERNAME=${{ secrets.GHCR_USERNAME }}
             export GHCR_TOKEN=${{ secrets.GHCR_TOKEN }}
-            export TAG=${{ env.TAG }}
-            export SERVICE="${{ github.event.inputs.service }}"
-            
-            # Логин в Container Registry
-            docker login ghcr.io -u $GHCR_USERNAME -p $GHCR_TOKEN
+            export TAG=${{ needs.prepare.outputs.tag }}
+            export SERVICE="${{ needs.prepare.outputs.service }}"
             
             # Переходим в директорию проекта
             cd /var/www/cicd-fullstack
@@ -125,6 +147,21 @@ jobs:
               echo "Restarting service: $SERVICE"
               docker-compose up -d --no-deps $SERVICE
             fi
+
+  verify:
+    needs: [prepare, deploy]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Verify deployment and cleanup
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # Переходим в директорию проекта
+            cd /var/www/cicd-fullstack
             
             # Проверяем работоспособность после деплоя
             sleep 10
@@ -135,6 +172,8 @@ jobs:
               cp docker-compose.backup.yml docker-compose.yml
               docker-compose up -d
               exit 1
+            else
+              echo "Деплой успешен, приложение работает корректно"
             fi
             
             # Очистка неиспользуемых образов (старше 24 часов)
