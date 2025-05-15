@@ -43,7 +43,7 @@ jobs:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}  # Пароль от ключа
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           source: "infra/docker/docker-compose.prod.yml"
           target: "${{ env.DEPLOY_DIR }}"
           strip_components: 2
@@ -55,8 +55,8 @@ jobs:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}  # Пароль от ключа
-          envs: DEPLOY_DIR,REGISTRY,BACKEND_IMAGE,FRONTEND_IMAGE,TAG
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          envs: DEPLOY_DIR,REGISTRY,BACKEND_IMAGE,FRONTEND_IMAGE,TAG,GITHUB_REPOSITORY_OWNER
           script: |
             cd $DEPLOY_DIR
             
@@ -65,6 +65,9 @@ jobs:
             
             # Подставляем тег
             sed -i "s/\${TAG:-latest}/$TAG/g" docker-compose.yml
+            
+            # Логинимся в GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login $REGISTRY -u ${{ github.repository_owner }} --password-stdin
             
             # Обновляем образы и контейнеры
             docker pull $REGISTRY/${{ github.repository_owner }}/$BACKEND_IMAGE:$TAG
