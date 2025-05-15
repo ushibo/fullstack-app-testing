@@ -53,11 +53,10 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "/app/docker-compose.yml"
           script: |
             cd ${{ env.DEPLOY_DIR }}
-            
-            # Переименовываем файл
-            mv docker-compose.prod.yml docker-compose.yml
             
             # Подставляем тег
             sed -i "s/\${TAG:-latest}/${{ env.TAG }}/g" docker-compose.yml
