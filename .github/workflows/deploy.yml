@@ -63,9 +63,6 @@ jobs:
             # Переименовываем файл
             mv docker-compose.prod.yml docker-compose.yml
             
-            # Подставляем тег
-            sed -i "s/\${TAG:-latest}/$TAG/g" docker-compose.yml
-            
             # Логинимся в GitHub Container Registry
             echo "${{ secrets.GHCR_TOKEN }}" | docker login $REGISTRY -u ${{ github.repository_owner }} --password-stdin
             

@@ -1,8 +1,8 @@
-version: '3.8'
+# Docker Compose для продакшен окружения
 
 services:
   frontend:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/frontend:latest
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/${FRONTEND_IMAGE:-fullstack-app-frontend}:${TAG:-latest}
     container_name: fullstack-app-frontend
     restart: always
     ports:
@@ -15,7 +15,7 @@ services:
       - NODE_ENV=production
 
   backend:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/backend:latest
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/${BACKEND_IMAGE:-fullstack-app-backend}:${TAG:-latest}
     container_name: fullstack-app-backend
     restart: always
     networks:
