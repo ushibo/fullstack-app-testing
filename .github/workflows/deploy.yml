@@ -63,7 +63,7 @@ jobs:
           mkdir -p /tmp/deploy
 
           # Копируем docker-compose файл
-          cp infra/docker/docker-compose.prod.yaml /tmp/deploy/docker-compose.yml
+          cp infra/docker/docker-compose.prod.yml /tmp/deploy/docker-compose.yml
 
           # Подставляем переменные окружения
           sed -i "s/\${TAG:-latest}/${{ steps.set_env.outputs.tag }}/g" /tmp/deploy/docker-compose.yml
@@ -109,8 +109,6 @@ jobs:
           registry: ghcr.io
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_TOKEN }}
-          ecr: auto
-          logout: true
           
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
