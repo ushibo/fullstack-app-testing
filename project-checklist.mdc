@@ -1,0 +1,44 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+## Fullstack Application Checklist (NestJS + React + Docker + CI/CD)
+
+### Project Setup
+- [x] Initialize project structure
+- [x] Create frontend project (React + Vite)
+- [x] Create backend project (NestJS)
+- [x] Verify frontend works locally
+- [x] Verify backend works locally
+- [x] @cursor: pause(Жду подтверждения. Напиши "OK" чтобы продолжить)
+
+### Backend Development
+- [x] Create /health endpoint
+- [x] Connect controller to app module
+- [x] Test backend health endpoint
+
+### Frontend Development
+- [x] Create backend status indicator component
+- [x] Implement status polling logic (every 5s)
+- [x] Add styling and animations
+- [x] Test connectivity with backend
+- [x] Verify frontend works locally
+
+### Docker & Infrastructure
+- [x] Create Dockerfile for backend
+- [x] Create Dockerfile for frontend
+- [x] Create docker-compose.yml
+- [x] Create docker-compose.prod.yml
+- [ ] Verify docker-compose works locally
+- [x] Configure Nginx for frontend
+- [x] Create deployment scripts
+
+### CI/CD
+- [x] Create GitHub Actions workflows for backend
+- [x] Create GitHub Actions workflows for frontend
+- [x] Create deployment workflow
+
+### Documentation
+- [x] Update README.md with project details
+- [x] Add setup and run instructions 

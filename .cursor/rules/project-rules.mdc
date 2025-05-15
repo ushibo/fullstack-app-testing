@@ -1,0 +1,366 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## **Урок Fullstack (NestJS + React), деплой в Docker с Nginx, настройка CI/CD. Часть 1**
+
+### Настройка Cursor IDE
+
+1. Создадим файл project-checklist.mdc
+
+```markdown
+## Fullstack Application Checklist (NestJS + React + Docker + CI/CD)
+
+### Project Setup
+- [ ] Initialize project structure
+- [ ] Create frontend project (React + Vite)
+- [ ] Create backend project (NestJS)
+- [ ] Verify frontend works locally
+- [ ] Verify backend works locally
+- [ ] @cursor: pause(Жду подтверждения. Напиши "OK" чтобы продолжить)
+
+### Backend Development
+- [ ] Create /health endpoint
+- [ ] Connect controller to app module
+- [ ] Test backend health endpoint
+
+### Frontend Development
+- [ ] Create backend status indicator component
+- [ ] Implement status polling logic (every 5s)
+- [ ] Add styling and animations
+- [ ] Test connectivity with backend
+- [ ] Verify frontend works locally
+
+### Docker & Infrastructure
+- [ ] Create Dockerfile for backend
+- [ ] Create Dockerfile for frontend
+- [ ] Create docker-compose.yml
+- [ ] Create docker-compose.prod.yml
+- [ ] Verify docker-compose works locally
+- [ ] Configure Nginx for frontend
+- [ ] Create deployment scripts
+
+### CI/CD
+- [ ] Create GitHub Actions workflows for backend
+- [ ] Create GitHub Actions workflows for frontend
+- [ ] Create deployment workflow
+
+### Documentation
+- [ ] Update README.md with project details
+- [ ] Add setup and run instructions 
+```
+---
+
+### **Введение**
+- О чём будет урок: создание fullstack-приложения (NestJS + React), деплой в Docker с Nginx, настройка CI/CD.
+- Какие технологии используются:
+    - Backend: **NestJS** (Node.js фреймворк)
+    - Frontend: **React** (TypeScript)
+    - База данных: **PostgreSQL** (или MongoDB, на выбор)
+    - Деплой: **Docker** + **Nginx** (обратный прокси и статика)
+    - CI/CD: **GitHub Actions** (автоматические сборки и деплой)
+    - IDE: **Cursor** (аналог VSCode с AI)
+---
+
+### **Настройка проекта и окружения**
+- Установка Docker и Docker Compose (если не установлен).
+- Инициализация Git-репозитория.
+- Создание структуры проекта:
+
+## 🧱 Структура проекта
+
+```bash
+├── apps/                          # Приложения
+│   ├── backend/                   # NestJS backend (src/, main.ts, controllers, services)
+│   └── frontend/                  # React + Vite frontend (src/, main.tsx, components, pages)
+│
+├── infra/                         # Инфраструктура
+│   ├── docker/                    # Dockerfile'ы и docker-compose.yml
+│   │   ├── Dockerfile.backend
+│   │   ├── Dockerfile.frontend
+│   │   └── docker-compose.yml
+│   ├── nginx/                     # Конфиги для nginx (для продакшн фронта)
+│   │   └── default.conf
+│   └── scripts/                   # Скрипты деплоя, миграций и т.п.
+│       └── deploy.sh
+│
+├── .github/
+│   └── workflows/                 # GitHub Actions workflows (CI/CD)
+│       ├── backend.yml
+│       ├── frontend.yml
+│       └── deploy.yml
+│
+├── .editorconfig
+├── .gitignore
+├── README.md
+```
+
+---
+
+## 📁 Инициализация проекта
+
+- Создать фронтенд-проект (React + Vite):
+  ```bash
+  npm create vite@latest frontend --template react-ts
+  ```
+-  (NestJS):
+  ```bash
+  nest new apps/backend
+  ```
+
+**Проверка фронтенда (React):**
+
+```bash
+cd apps/frontend
+npm i 
+
+Откройте [http://localhost:5173](http://localhost:5173) — должна быть стартовая страница.
+
+**Проверка бэкенда (NestJS):**
+```bash
+cd apps/backend
+npm install
+npm run start:dev
+```  
+
+Откройте [http://localhost:3000](http://localhost:3000) — должно быть `Hello World!`.
+
+---
+
+## **Разработка Backend (NestJS)**
+
+#### **Создаем `/health` эндпоинт**
+`src/health/health.controller.ts`
+```typescript
+import { Controller, Get } from '@nestjs/common';
+
+@Controller('health')
+export class HealthController {
+  @Get()
+  checkHealth() {
+    return { 
+      status: 'ok', 
+      timestamp: new Date().toISOString() 
+    };
+  }
+}
+```
+
+#### **Подключаем контроллер**
+В `src/app.module.ts`:
+```typescript
+import { Module } from '@nestjs/common';
+import { HealthController } from './health/health.controller';
+
+@Module({
+  controllers: [HealthController],
+})
+export class AppModule {}
+```
+
+#### **Запуск**
+- Выполните:
+```bash
+npm run start:dev
+```  
+
+#### **Проверка**
+Перейдите по ссылке или встройте запрос в Cursor:
+```
+http://localhost:3000/health
+```  
+**Ожидаемый ответ:**
+```json
+{ "status": "ok", "timestamp": "..." }
+```
+
+## **Разработка Frontend (React)**
+### **Frontend (React) - Индикатор статуса бэкенда**
+
+#### **Что делает?**
+1. **Проверяет доступность бэкенда** через `/health` (GET-запрос).
+2. **Отображает статус** мигающей кнопкой:
+  - 🟢 **Зеленая** (`Backend Online`) — если `/health` возвращает `status: ok`.
+  - 🔴 **Красная** (`Backend Offline`) — если бэкенд недоступен или вернул ошибку.
+3. **Автообновление** — проверяет статус каждые **5 секунд**.
+4. **Анимация** — плавное мигание для привлечения внимания.
+5. **Стили** - должен быть современный дизайн
+6. Добавить прокси в vite.config.js чтобы не было проблем с CORS при обращении к API, все запросы идут через /api
+
+```js
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      }
+    }
+  }
+})
+```
+
+**Первая часть завершена, пользователь должен убедится что все локально работает, и после подтверждения можем продолжить**
+
+---
+
+## 🐳 Docker и Compose
+Dockerfile — это инструкция для сборки Docker-образа приложения.
+
+Зачем он нужен:
+* Автоматизирует создание среды для запуска приложения
+* Гарантирует одинаковую работу на любом сервере (локально, в облаке и т. д.)
+* Изолирует приложение и его зависимости от системы
+* Оптимизирует размер и безопасность (например, с помощью многостадийной сборки)
+
+- 🔧 Написать `Dockerfile` для фронтенда (Vite + nginx) `/infra/docker/Dockerfile.frontend`
+```dockerfile
+# Stage 1: Build application
+FROM node:20-alpine AS builder
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Копируем package.json и устанавливаем зависимости
+COPY apps/frontend/package*.json ./
+RUN npm install
+
+# Копируем исходный код и собираем приложение
+COPY apps/frontend ./
+RUN npm run build
+
+# Stage 2: Nginx для продакшн-раздачи
+FROM nginx:stable-alpine AS production
+
+# Удаляем дефолтный конфиг
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Копируем наш Nginx конфиг
+COPY infra/nginx/default.conf /etc/nginx/conf.d/
+
+# Копируем собранную статику из предыдущего stage
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Открываем порт
+EXPOSE 80
+
+# Запускаем Nginx
+CMD ["nginx", "-g", "daemon off;"]
+```
+- 🔧 Написать `Dockerfile` для бэкенда (NestJS): `/infra/docker/Dockerfile.backend`
+```dockerfile
+# Stage 1: Build stage
+FROM node:20-alpine AS builder
+
+# Рабочая директория
+WORKDIR /app
+
+# Копируем зависимости и устанавливаем их
+COPY apps/backend/package*.json ./
+RUN npm install
+
+# Копируем исходный код и собираем
+COPY apps/backend ./
+RUN npm run build
+
+# Stage 2: Production stage
+FROM node:20-alpine AS production
+
+# Рабочая директория
+WORKDIR /app
+
+# Копируем только необходимое из билд-стадии
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY apps/backend/package.json ./
+
+# Переменные окружения по умолчанию
+ENV NODE_ENV=production
+EXPOSE 3000
+
+# Запуск приложения
+CMD ["node", "dist/main"]
+```
+
+- Сконфигурировать `/infra/docker/docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.frontend
+    container_name: frontend-app
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.backend
+      target: production
+    container_name: backend-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - app-network
+networks:
+  app-network:
+    driver: bridge
+```
+- Сконфигурировать `/infra/docker/docker-compose.prod.yml`:
+```yaml
+version: '3.8'
+
+services:
+  frontend:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/frontend:latest
+    container_name: fullstack-app-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    environment:
+      - NODE_ENV=production
+
+  backend:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/backend:latest
+    container_name: fullstack-app-backend
+    restart: always
+    networks:
+      - app-network
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  app-network:
+    driver: bridge
+
+```
+
+---

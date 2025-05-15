@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/frontend:latest
+    container_name: fullstack-app-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    environment:
+      - NODE_ENV=production
+
+  backend:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-username}/backend:latest
+    container_name: fullstack-app-backend
+    restart: always
+    networks:
+      - app-network
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  app-network:
+    driver: bridge 
