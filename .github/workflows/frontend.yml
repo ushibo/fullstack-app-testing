@@ -19,9 +19,13 @@ on:
         default: 'Ручной запуск'
 
 jobs:
-  build-and-test:
+  setup:
     runs-on: ubuntu-latest
     environment: production
+    outputs:
+      short_sha: ${{ steps.meta.outputs.SHORT_SHA }}
+      branch: ${{ steps.meta.outputs.BRANCH }}
+      date: ${{ steps.meta.outputs.DATE }}
 
     steps:
       - name: Checkout repository
@@ -38,22 +42,89 @@ jobs:
 
       - name: Install dependencies
         run: cd apps/frontend && npm ci
-
-      - name: Lint
-        run: cd apps/frontend && npm run lint
-
-      - name: Build
-        run: cd apps/frontend && npm run build
-
-      - name: Test
-        run: cd apps/frontend && npm test || echo "Tests not configured properly, but continuing build"
-
+        
       - name: Extract metadata
         id: meta
         run: |
           echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "BRANCH=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
           echo "DATE=$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+
+  lint:
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'apps/frontend/package-lock.json'
+        
+      - name: Install dependencies
+        run: cd apps/frontend && npm ci
+        
+      - name: Run linting
+        run: cd apps/frontend && npm run lint
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'apps/frontend/package-lock.json'
+        
+      - name: Install dependencies
+        run: cd apps/frontend && npm ci
+        
+      - name: Build project
+        run: cd apps/frontend && npm run build
+
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'apps/frontend/package-lock.json'
+        
+      - name: Install dependencies
+        run: cd apps/frontend && npm ci
+        
+      - name: Run tests
+        run: cd apps/frontend && npm test || echo "Tests not configured properly, but continuing build"
+
+  docker:
+    needs: [lint, build, test]
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -73,10 +144,10 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:latest
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:${{ steps.meta.outputs.SHORT_SHA }}
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:${{ needs.setup.outputs.short_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ steps.meta.outputs.DATE }}
+            org.opencontainers.image.created=${{ needs.setup.outputs.date }}
