@@ -4,55 +4,79 @@
 
 set -e
 
-# Переменные
-REPO_URL=${REPO_URL:-"ghcr.io/username"}
-COMPOSE_FILE="infra/docker/docker-compose.prod.yml"
-APP_DIR="/opt/fullstack-app"
+# Переменные по умолчанию
+DEPLOY_DIR="${DEPLOY_DIR:-/app}"
+REGISTRY="${REGISTRY:-ghcr.io}"
+BACKEND_IMAGE="${BACKEND_IMAGE:-fullstack-app-backend}"
+FRONTEND_IMAGE="${FRONTEND_IMAGE:-fullstack-app-frontend}"
+TAG="${TAG:-latest}"
+GITHUB_REPOSITORY_OWNER="${GITHUB_REPOSITORY_OWNER:-username}"
 
 # Функция для вывода сообщений
 log() {
   echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
 }
 
-# Проверка наличия Docker и Docker Compose
-if ! command -v docker &> /dev/null; then
-  log "Docker не установлен. Устанавливаем..."
-  curl -fsSL https://get.docker.com | sh
-  log "Docker установлен"
+# Проверяем наличие директории деплоя
+if [ ! -d "$DEPLOY_DIR" ]; then
+  log "Создаем директорию $DEPLOY_DIR..."
+  mkdir -p "$DEPLOY_DIR"
 fi
 
-# Создаем директорию приложения
-log "Создаем директорию приложения..."
-mkdir -p $APP_DIR
+# Переходим в директорию деплоя
+cd "$DEPLOY_DIR"
+log "Рабочая директория: $(pwd)"
 
-# Копируем файлы конфигурации
-log "Копируем конфигурационные файлы..."
-cp $COMPOSE_FILE $APP_DIR/docker-compose.yml
+# Проверяем наличие файла docker-compose.prod.yml
+if [ -f "docker-compose.prod.yml" ]; then
+  log "Переименовываем docker-compose.prod.yml в docker-compose.yml..."
+  mv docker-compose.prod.yml docker-compose.yml
+fi
 
-# Аутентификация в реестре контейнеров, если токен предоставлен
+# Создаем файл .env для docker-compose
+log "Создаем файл .env с настройками..."
+cat > .env << EOF
+REGISTRY=$REGISTRY
+GITHUB_REPOSITORY_OWNER=$GITHUB_REPOSITORY_OWNER
+FRONTEND_IMAGE=$FRONTEND_IMAGE
+BACKEND_IMAGE=$BACKEND_IMAGE
+TAG=$TAG
+EOF
+
+# Аутентификация в GitHub Container Registry
 if [ ! -z "$GITHUB_TOKEN" ]; then
   log "Аутентификация в GitHub Container Registry..."
-  echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_REPOSITORY_OWNER --password-stdin
+  echo "$GITHUB_TOKEN" | docker login $REGISTRY -u $GITHUB_REPOSITORY_OWNER --password-stdin
+  if [ $? -ne 0 ]; then
+    log "❌ Ошибка аутентификации в Container Registry"
+    exit 1
+  fi
 fi
 
-# Параметры запуска
-export GITHUB_REPOSITORY_OWNER=${GITHUB_REPOSITORY_OWNER:-"username"}
-
-# Остановка и удаление старых контейнеров
-log "Останавливаем старые контейнеры..."
-cd $APP_DIR
-docker-compose down || true
-
-# Получение последних образов
+# Получаем последние образы
 log "Получаем последние образы..."
-docker-compose pull
+docker pull $REGISTRY/$GITHUB_REPOSITORY_OWNER/$BACKEND_IMAGE:$TAG
+docker pull $REGISTRY/$GITHUB_REPOSITORY_OWNER/$FRONTEND_IMAGE:$TAG
 
-# Запуск приложения
+# Останавливаем и удаляем старые контейнеры
+log "Останавливаем старые контейнеры..."
+docker compose down
+
+# Запускаем приложение
 log "Запускаем приложение..."
-docker-compose up -d
+docker compose up -d --remove-orphans
 
-# Проверка статуса
-log "Проверяем статус..."
-docker-compose ps
+# Проверка работоспособности
+log "Проверяем доступность приложения..."
+sleep 10
+if curl --silent --fail http://localhost/api/health; then
+  log "🚀 Деплой успешно завершен!"
+else
+  log "⚠️ Проверка доступности не удалась, но продолжаем..."
+fi
 
-log "Деплой завершен успешно!" 
+# Очистка неиспользуемых образов
+log "Очищаем неиспользуемые образы..."
+docker image prune -f
+
+log "Деплой успешно завершен!" 

@@ -33,7 +33,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -86,7 +86,7 @@ jobs:
     if: ${{ needs.setup.outputs.backend == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.components == 'all' }}
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -100,13 +100,13 @@ jobs:
 
       - name: Install dependencies
         run: cd apps/backend && npm ci
-        
+
       - name: Run linting
         run: cd apps/backend && npm run lint
-        
+
       - name: Build project
         run: cd apps/backend && npm run build
-        
+
       - name: Run tests
         run: cd apps/backend && npm test || echo "Tests not configured properly, but continuing build"
 
@@ -137,7 +137,7 @@ jobs:
     if: ${{ needs.setup.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.components == 'all' }}
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -151,13 +151,13 @@ jobs:
 
       - name: Install dependencies
         run: cd apps/frontend && npm ci
-        
+
       - name: Run linting
         run: cd apps/frontend && npm run lint
-        
+
       - name: Build project
         run: cd apps/frontend && npm run build
-        
+
       - name: Run tests
         run: cd apps/frontend && npm test || echo "Tests not configured properly, but continuing build"
 
@@ -203,9 +203,9 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
-          source: "infra/docker/docker-compose.prod.yml"
+          source: "infra/docker/docker-compose.prod.yml,infra/scripts/deploy.sh"
           target: "${{ env.DEPLOY_DIR }}"
-          strip_components: 2
+          strip_components: 1
           overwrite: true
 
       - name: Deploy to server
@@ -216,39 +216,4 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           envs: DEPLOY_DIR,REGISTRY,BACKEND_IMAGE,FRONTEND_IMAGE,TAG,GITHUB_REPOSITORY_OWNER
-          script: |
-            cd $DEPLOY_DIR
-            
-            # Переименовываем файл
-            mv docker-compose.prod.yml docker-compose.yml
-            
-            # Создаем файл .env для docker-compose
-            cat > .env << EOF
-            REGISTRY=$REGISTRY
-            GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
-            FRONTEND_IMAGE=$FRONTEND_IMAGE
-            BACKEND_IMAGE=$BACKEND_IMAGE
-            TAG=$TAG
-            EOF
-            
-            # Логинимся в GitHub Container Registry
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login $REGISTRY -u ${{ github.repository_owner }} --password-stdin
-            
-            # Обновляем образы и контейнеры
-            docker pull $REGISTRY/${{ github.repository_owner }}/$BACKEND_IMAGE:$TAG
-            docker pull $REGISTRY/${{ github.repository_owner }}/$FRONTEND_IMAGE:$TAG
-            
-            docker compose down
-            docker compose up -d --remove-orphans
-            
-            # Проверяем работоспособность
-            sleep 10
-            if curl --silent --fail http://localhost:3000/health; then
-              echo "🚀 Deployment successful!"
-              # Очистка
-              docker image prune -f
-            else
-              echo "❌ Health check failed, but continuing deployment"
-              # Очистка все равно делаем
-              docker image prune -f
-            fi 
+          script: "chmod +x ${{ env.DEPLOY_DIR }}/scripts/deploy.sh && ${{ env.DEPLOY_DIR }}/scripts/deploy.sh"
