@@ -63,6 +63,15 @@ jobs:
             # Переименовываем файл
             mv docker-compose.prod.yml docker-compose.yml
             
+            # Создаем файл .env для docker-compose
+            cat > .env << EOF
+            REGISTRY=$REGISTRY
+            GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
+            FRONTEND_IMAGE=$FRONTEND_IMAGE
+            BACKEND_IMAGE=$BACKEND_IMAGE
+            TAG=$TAG
+            EOF
+            
             # Логинимся в GitHub Container Registry
             echo "${{ secrets.GHCR_TOKEN }}" | docker login $REGISTRY -u ${{ github.repository_owner }} --password-stdin
             
@@ -75,7 +84,7 @@ jobs:
             
             # Проверяем работоспособность
             sleep 10
-            if curl --silent --fail http://localhost/api/health/readiness; then
+            if curl --silent --fail http://localhost/api/health; then
               echo "🚀 Deployment successful!"
               # Очистка
               docker image prune -f
