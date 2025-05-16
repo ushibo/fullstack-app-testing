@@ -1,10 +1,11 @@
+# ⚠️ ЭТОТ WORKFLOW УСТАРЕЛ И БОЛЬШЕ НЕ ИСПОЛЬЗУЕТСЯ ⚠️
+# Вместо него используется единый workflow в .github/workflows/unified.yml
+# Который запускает параллельно сборку frontend и backend и затем выполняет деплой
+
 name: deploy
 
 on:
-  workflow_run:
-    workflows: ["backend", "frontend"]
-    types:
-      - completed
+  # Отключаем автоматический запуск
   workflow_dispatch:
     inputs:
       tag:

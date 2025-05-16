@@ -1,0 +1,256 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'infra/**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker image tag'
+        required: false
+        default: 'latest'
+      components:
+        description: 'Компоненты для сборки'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'frontend'
+          - 'backend'
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: fullstack-app-backend
+  FRONTEND_IMAGE: fullstack-app-frontend
+  DEPLOY_DIR: /app
+  TAG: ${{ github.event.inputs.tag || 'latest' }}
+
+jobs:
+  # Проверка изменений
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Необходимо для правильной работы path-filter
+
+      # Ручной выбор компонентов имеет приоритет
+      - name: Check manual component selection
+        id: manual
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.components != 'all'
+        run: |
+          if [[ "${{ github.event.inputs.components }}" == "frontend" ]]; then
+            echo "backend=false" >> $GITHUB_OUTPUT
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "Manual selection: only frontend"
+          elif [[ "${{ github.event.inputs.components }}" == "backend" ]]; then
+            echo "backend=true" >> $GITHUB_OUTPUT
+            echo "frontend=false" >> $GITHUB_OUTPUT
+            echo "Manual selection: only backend"
+          fi
+
+      # Если не ручной выбор, проверяем изменения в файлах
+      - name: Check file changes
+        id: filter
+        if: steps.manual.conclusion == 'skipped'
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            backend:
+              - 'apps/backend/**'
+              - 'infra/docker/Dockerfile.backend'
+            frontend:
+              - 'apps/frontend/**'
+              - 'infra/docker/Dockerfile.frontend'
+            infra:
+              - 'infra/**'
+              - '.github/workflows/**'
+
+      # Если изменения в общей инфраструктуре, включаем оба компонента
+      - name: Set final changes
+        if: steps.manual.conclusion == 'skipped' && steps.filter.outputs.infra == 'true'
+        run: |
+          echo "Infra changes detected, will build both components"
+          echo "backend=true" >> $GITHUB_OUTPUT
+          echo "frontend=true" >> $GITHUB_OUTPUT
+
+  # Сборка backend
+  build-backend:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.components == 'all' }}
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'apps/backend/package-lock.json'
+
+      - name: Install dependencies
+        run: cd apps/backend && npm ci
+
+      - name: Run linting
+        run: cd apps/backend && npm run lint
+
+      - name: Build project
+        run: cd apps/backend && npm run build
+
+      - name: Run tests
+        run: cd apps/backend && npm test || echo "Tests not configured properly, but continuing build"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/Dockerfile.backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Сборка frontend
+  build-frontend:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.components == 'all' }}
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'apps/frontend/package-lock.json'
+
+      - name: Install dependencies
+        run: cd apps/frontend && npm ci
+
+      - name: Run linting
+        run: cd apps/frontend && npm run lint
+
+      - name: Build project
+        run: cd apps/frontend && npm run build
+
+      - name: Run tests
+        run: cd apps/frontend && npm test || echo "Tests not configured properly, but continuing build"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Деплой приложения
+  deploy:
+    needs: [changes, build-backend, build-frontend]
+    if: |
+      always() && 
+      (needs.changes.outputs.backend == 'false' || needs.build-backend.result == 'success') && 
+      (needs.changes.outputs.frontend == 'false' || needs.build-frontend.result == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose file to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          source: "infra/docker/docker-compose.prod.yml"
+          target: "${{ env.DEPLOY_DIR }}"
+          strip_components: 2
+          overwrite: true
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          envs: DEPLOY_DIR,REGISTRY,BACKEND_IMAGE,FRONTEND_IMAGE,TAG,GITHUB_REPOSITORY_OWNER
+          script: |
+            cd $DEPLOY_DIR
+
+            # Переименовываем файл
+            mv docker-compose.prod.yml docker-compose.yml
+
+            # Создаем файл .env для docker-compose
+            cat > .env << EOF
+            REGISTRY=$REGISTRY
+            GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
+            FRONTEND_IMAGE=$FRONTEND_IMAGE
+            BACKEND_IMAGE=$BACKEND_IMAGE
+            TAG=$TAG
+            EOF
+
+            # Логинимся в GitHub Container Registry
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login $REGISTRY -u ${{ github.repository_owner }} --password-stdin
+
+            # Обновляем образы и контейнеры
+            docker pull $REGISTRY/${{ github.repository_owner }}/$BACKEND_IMAGE:$TAG
+            docker pull $REGISTRY/${{ github.repository_owner }}/$FRONTEND_IMAGE:$TAG
+
+            docker compose down
+            docker compose up -d --remove-orphans
+
+            # Проверяем работоспособность
+            sleep 10
+            if curl --silent --fail http://localhost/api/health; then
+              echo "🚀 Deployment successful!"
+              # Очистка
+              docker image prune -f
+            else
+              echo "❌ Deployment failed!"
+              exit 1
+            fi

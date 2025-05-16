@@ -1,16 +1,10 @@
+# ⚠️ ЭТОТ WORKFLOW УСТАРЕЛ И БОЛЬШЕ НЕ ИСПОЛЬЗУЕТСЯ ⚠️
+# Вместо него используется единый workflow в .github/workflows/unified.yml
+
 name: backend
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/backend/**'
-      - 'infra/**'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/backend/**'
-      - 'infra/**'
+  # Отключаем автоматический запуск
   workflow_dispatch:
     inputs:
       reason:
@@ -20,6 +14,7 @@ on:
 
 jobs:
   setup:
+    if: false # Всегда пропускаем этот job
     runs-on: ubuntu-latest
     environment: production
     outputs:
